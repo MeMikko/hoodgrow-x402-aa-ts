@@ -1,0 +1,56 @@
+{
+  "name": "hoodgrow-x402-aa",
+  "version": "0.1.0",
+  "description": "Give an ERC-4337 / account-abstraction agent a dedicated, non-custodial EOA so it can pay x402 (HTTP 402) challenges — smart-wallet signatures don't yet settle on today's facilitators.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx --test test/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "x402",
+    "account-abstraction",
+    "erc-4337",
+    "smart-wallet",
+    "agent",
+    "ai-agent",
+    "eip-3009",
+    "base"
+  ],
+  "license": "MIT",
+  "author": "HoodGrow",
+  "homepage": "https://www.hoodgrow.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MeMikko/hoodgrow-x402-aa-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MeMikko/hoodgrow-x402-aa-ts/issues"
+  },
+  "dependencies": {
+    "@x402/core": "^2.20.0",
+    "@x402/evm": "^2.20.0",
+    "@x402/fetch": "^2.20.0",
+    "viem": "^2.55.10"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "tsx": "^4.23.1",
+    "typescript": "^5"
+  }
+}
