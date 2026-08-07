@@ -1,6 +1,6 @@
 {
   "name": "hoodgrow-x402-aa",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Give an ERC-4337 / account-abstraction agent a dedicated, non-custodial EOA so it can pay x402 (HTTP 402) challenges — smart-wallet signatures don't yet settle on today's facilitators.",
   "type": "module",
   "main": "./dist/index.js",
