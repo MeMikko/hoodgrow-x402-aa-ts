@@ -34,7 +34,11 @@
     "wallet"
   ],
   "license": "MIT",
-  "author": "HoodGrow",
+  "author": "HoodGrow (https://www.hoodgrow.com)",
+  "funding": {
+    "type": "individual",
+    "url": "https://www.hoodgrow.com/api-access"
+  },
   "homepage": "https://github.com/MeMikko/hoodgrow-x402-aa-ts#readme",
   "repository": {
     "type": "git",
