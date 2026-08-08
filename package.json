@@ -1,7 +1,7 @@
 {
-  "name": "hoodgrow-x402-aa",
-  "version": "0.1.1",
-  "description": "Give an ERC-4337 / account-abstraction agent a dedicated, non-custodial EOA so it can pay x402 (HTTP 402) challenges — smart-wallet signatures don't yet settle on today's facilitators.",
+  "name": "x402-aa-wallet",
+  "version": "0.2.0",
+  "description": "Give an ERC-4337 / account-abstraction agent a dedicated, non-custodial EOA so it can pay x402 (HTTP 402) challenges against any x402 merchant — smart-wallet signatures don't yet settle on today's facilitators. Optional maxAmountUsd spend cap.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -30,11 +30,12 @@
     "agent",
     "ai-agent",
     "eip-3009",
-    "base"
+    "base",
+    "wallet"
   ],
   "license": "MIT",
   "author": "HoodGrow",
-  "homepage": "https://www.hoodgrow.com",
+  "homepage": "https://github.com/MeMikko/hoodgrow-x402-aa-ts#readme",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MeMikko/hoodgrow-x402-aa-ts.git"

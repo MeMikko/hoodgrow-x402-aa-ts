@@ -24,7 +24,7 @@ import type { LocalAccount } from "viem";
  * persists a private key anywhere. Key generation happens entirely inside
  * your own process via viem's `generatePrivateKey`; the private key is
  * returned to YOU and exists only in your process's memory unless you
- * choose to store it. hoodgrow-x402-aa (and HoodGrow) have no visibility
+ * choose to store it. This package (and HoodGrow, who sponsors it) have no visibility
  * into it, ever.
  */
 
@@ -33,6 +33,22 @@ export interface SpendWallet {
   privateKey: `0x${string}`;
   /** Ready to pass straight into {@link x402Fetch}. */
   account: LocalAccount;
+}
+
+/**
+ * Builds a SpendWallet with `privateKey` defined as a non-enumerable
+ * property — it still reads exactly like a plain field (`wallet.privateKey`
+ * works), but `console.log(wallet)`, `JSON.stringify(wallet)`, and most
+ * structured loggers/error serializers/Sentry breadcrumbs only walk
+ * ENUMERABLE own properties, so none of them print the key by accident.
+ * `address`/`account` stay plain enumerable fields — nothing sensitive
+ * about those.
+ */
+function buildSpendWallet(address: `0x${string}`, privateKey: `0x${string}`, account: LocalAccount): SpendWallet {
+  return Object.defineProperties(
+    { address, account } as SpendWallet,
+    { privateKey: { value: privateKey, enumerable: false, writable: false, configurable: false } }
+  );
 }
 
 /**
@@ -45,7 +61,7 @@ export interface SpendWallet {
 export function createSpendWallet(): SpendWallet {
   const privateKey = generatePrivateKey();
   const account = privateKeyToAccount(privateKey);
-  return { address: account.address, privateKey, account };
+  return buildSpendWallet(account.address, privateKey, account);
 }
 
 /**
@@ -56,5 +72,5 @@ export function createSpendWallet(): SpendWallet {
  */
 export function spendWalletFromPrivateKey(privateKey: `0x${string}`): SpendWallet {
   const account = privateKeyToAccount(privateKey);
-  return { address: account.address, privateKey, account };
+  return buildSpendWallet(account.address, privateKey, account);
 }

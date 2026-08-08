@@ -1,0 +1,23 @@
+name: CI
+
+# Runs build+test on every push and PR, separate from publish.yml (release-
+# triggered only) — before this, a broken commit could sit unnoticed until
+# the next release actually tried to publish it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
