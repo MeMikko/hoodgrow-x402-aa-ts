@@ -20,6 +20,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A git tag is just a label — npm publishes whatever package.json
+      # says, not the tag. Tagging v0.2.1 without bumping package.json
+      # silently republishes the old version and fails with a 403 "cannot
+      # publish over previously published versions" that's easy to miss.
+      # Fail loudly here instead, before wasting a publish attempt.
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::Release tag is v$TAG_VERSION but package.json version is $PKG_VERSION — bump package.json and re-tag."
+            exit 1
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
