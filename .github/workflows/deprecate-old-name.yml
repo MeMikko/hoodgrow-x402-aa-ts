@@ -16,6 +16,7 @@ jobs:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
-      - run: npm deprecate hoodgrow-x402-aa@"*" "Renamed to x402-aa-wallet: https://www.npmjs.com/package/x402-aa-wallet"
+      - run: |
+          npm deprecate hoodgrow-x402-aa@"*" "Renamed to x402-aa-wallet: https://www.npmjs.com/package/x402-aa-wallet"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
