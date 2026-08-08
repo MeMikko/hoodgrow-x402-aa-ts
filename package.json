@@ -39,13 +39,13 @@
     "type": "individual",
     "url": "https://www.hoodgrow.com/api-access"
   },
-  "homepage": "https://github.com/MeMikko/hoodgrow-x402-aa-ts#readme",
+  "homepage": "https://github.com/MeMikko/x402-aa-wallet-ts#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/MeMikko/hoodgrow-x402-aa-ts.git"
+    "url": "git+https://github.com/MeMikko/x402-aa-wallet-ts.git"
   },
   "bugs": {
-    "url": "https://github.com/MeMikko/hoodgrow-x402-aa-ts/issues"
+    "url": "https://github.com/MeMikko/x402-aa-wallet-ts/issues"
   },
   "dependencies": {
     "@x402/core": "^2.20.0",
