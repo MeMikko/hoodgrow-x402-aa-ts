@@ -65,7 +65,7 @@ test("x402Fetch accepts a raw LocalAccount", async () => {
  * endpoints use (see @/lib/x402.ts's own 402 demo in the main app), not a
  * v1 JSON-body shortcut.
  */
-function paymentRequiredResponse(amountAtomic: string): Response {
+function paymentRequiredResponse(amountAtomic: string, asset?: string): Response {
   const paymentRequired = {
     x402Version: 2,
     resource: { url: "https://example.com/paid", method: "GET" },
@@ -73,7 +73,7 @@ function paymentRequiredResponse(amountAtomic: string): Response {
       {
         scheme: "exact",
         network: "eip155:8453",
-        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        asset: asset ?? "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         amount: amountAtomic,
         payTo: "0x8520B3693a2Cf3c2bEa3a505Af3A9c1b093954c7",
         maxTimeoutSeconds: 60,
@@ -145,6 +145,25 @@ test("x402Fetch with maxAmountUsd refuses to pay a challenge over the cap", asyn
       await assert.rejects(
         () => fetchWithPayment("https://example.com/paid"),
         /exceeds the configured maxAmountUsd cap/
+      );
+    }
+  );
+});
+
+test("x402Fetch with maxAmountUsd refuses a requirement on an unrecognized asset, even if the raw amount looks small", async () => {
+  const wallet = createSpendWallet();
+
+  // A $50 charge expressed on a hypothetical 2-decimal asset is "5000"
+  // atomic units — numerically far below a $0.50 cap computed assuming
+  // 6-decimal USDC (500000). Blindly comparing raw numbers would let this
+  // through; verifying the asset itself must refuse it instead.
+  await withGlobalFetch(
+    (async () => paymentRequiredResponse("5000", "0x000000000000000000000000000000000000dd")) as typeof fetch,
+    async () => {
+      const fetchWithPayment = x402Fetch(wallet, { maxAmountUsd: 0.5 });
+      await assert.rejects(
+        () => fetchWithPayment("https://example.com/paid"),
+        /exceeds the configured maxAmountUsd cap|unrecognized asset/
       );
     }
   );

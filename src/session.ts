@@ -14,6 +14,26 @@ export const NETWORK: Network = "eip155:8453";
  * units `PaymentRequirements.amount` is expressed in. */
 const USDC_DECIMALS = 6;
 
+/**
+ * Circle's own native USDC contract addresses, keyed by CAIP-2 network —
+ * every one is 6 decimals (Circle mandates this across all its official
+ * deployments, unlike third-party bridged/wrapped variants elsewhere).
+ * `PaymentRequirements.asset` is just an address; nothing about the x402
+ * protocol guarantees it points at one of these. `maxAmountUsdPolicy`
+ * only applies the USDC_DECIMALS-based cap to a requirement whose asset
+ * matches an entry here — anything else is excluded rather than
+ * evaluated with a guessed decimal count. Getting decimals wrong in
+ * either direction is bad, but guessing UNDER the real value (e.g.
+ * treating an 18-decimal asset's raw amount as if it were 6-decimal)
+ * makes a genuinely large charge look small enough to pass the cap —
+ * that failure mode is worse than refusing to pay an asset this policy
+ * can't verify, so unknown assets fail closed.
+ */
+const KNOWN_USDC_ADDRESSES: Partial<Record<Network, string>> = {
+  "eip155:8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Base mainnet
+  "eip155:84532": "0x036cbd53842c5426634e7929541ec2318f3dcf7e", // Base Sepolia
+};
+
 function isSpendWallet(w: SpendWallet | LocalAccount | `0x${string}`): w is SpendWallet {
   return typeof w === "object" && "account" in w;
 }
@@ -45,11 +65,24 @@ export interface X402FetchOptions {
 function maxAmountUsdPolicy(maxAmountUsd: number) {
   const capAtomic = BigInt(Math.round(maxAmountUsd * 10 ** USDC_DECIMALS));
   return (_x402Version: number, requirements: PaymentRequirements[]): PaymentRequirements[] => {
-    const affordable = requirements.filter((r) => BigInt(r.amount) <= capAtomic);
+    const affordable = requirements.filter((r) => {
+      const knownUsdc = KNOWN_USDC_ADDRESSES[r.network];
+      if (!knownUsdc || r.asset.toLowerCase() !== knownUsdc) return false;
+      return BigInt(r.amount) <= capAtomic;
+    });
     if (affordable.length === 0 && requirements.length > 0) {
-      const asked = requirements.map((r) => `${r.amount} atomic units on ${r.network}`).join(", ");
+      const asked = requirements
+        .map((r) => {
+          const knownUsdc = KNOWN_USDC_ADDRESSES[r.network];
+          const reason =
+            !knownUsdc || r.asset.toLowerCase() !== knownUsdc
+              ? "unrecognized asset, decimals not verified"
+              : "over cap";
+          return `${r.amount} atomic units of ${r.asset} on ${r.network} (${reason})`;
+        })
+        .join(", ");
       throw new Error(
-        `x402Fetch: every payment option (${asked}) exceeds the configured maxAmountUsd cap of $${maxAmountUsd} — refusing to pay. ` +
+        `x402Fetch: every payment option (${asked}) exceeds the configured maxAmountUsd cap of $${maxAmountUsd}, or is on an asset this policy can't verify — refusing to pay. ` +
           "Raise maxAmountUsd if this charge is expected, or investigate why the server is asking for more than usual."
       );
     }
