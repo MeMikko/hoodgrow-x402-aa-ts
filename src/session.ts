@@ -40,18 +40,24 @@ function isSpendWallet(w: SpendWallet | LocalAccount | `0x${string}`): w is Spen
 
 export interface X402FetchOptions {
   /**
-   * Refuse to pay any single 402 challenge above this USD amount (assumes
-   * the asset is USDC, the only asset x402's "exact" scheme settles today
-   * — `PaymentRequirements.amount` is atomic units, so this converts
-   * against `USDC_DECIMALS`). Without this, `x402Fetch` pays whatever the
-   * server's 402 response asks for — a misbehaving or compromised
-   * merchant returning e.g. `amount: "50000000"` ($50) instead of the
-   * expected $0.05 gets paid in full, silently. Recommended for any
-   * caller giving an agent autonomous spending — this is a real
-   * enforcement boundary (a `PaymentPolicy` registered on the underlying
-   * `x402Client`), not just a suggestion in a docstring: a requirement
-   * over the cap is filtered out before signing, and if that leaves
-   * nothing payable, the call throws instead of silently proceeding.
+   * Refuse to pay any single 402 challenge above this USD amount. Without
+   * this, `x402Fetch` pays whatever the server's 402 response asks for —
+   * a misbehaving or compromised merchant returning e.g.
+   * `amount: "50000000"` ($50) instead of the expected $0.05 gets paid in
+   * full, silently. Recommended for any caller giving an agent autonomous
+   * spending — this is a real enforcement boundary (a `PaymentPolicy`
+   * registered on the underlying `x402Client`), not just a suggestion in
+   * a docstring: a requirement over the cap is filtered out before
+   * signing, and if that leaves nothing payable, the call throws instead
+   * of silently proceeding.
+   *
+   * Only evaluates a requirement whose `asset` is a known 6-decimal
+   * Circle USDC deployment (see `KNOWN_USDC_ADDRESSES`) — a requirement
+   * on any other asset is refused outright, not evaluated with a guessed
+   * decimal count. This is deliberate: assuming an unverified asset is
+   * 6-decimal USDC is exactly what let a smaller-decimals asset's large
+   * real-dollar charge look cheap enough to pass the cap before this was
+   * fixed (see `maxAmountUsdPolicy`).
    */
   maxAmountUsd?: number;
   /** Override the network this wallet pays on — CAIP-2 form, e.g.
