@@ -16,7 +16,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, matching publish.yml (Node 20 went end-of-life April 2026).
+          node-version: 22
+          cache: npm
 
       - run: npm ci
       - run: npm run build

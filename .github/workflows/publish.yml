@@ -36,7 +36,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22 — Node 20 went end-of-life in April 2026, so the build and
+          # tests gating a publish were running on a Node that no longer
+          # receives security fixes.
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - run: npm ci
