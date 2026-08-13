@@ -24,7 +24,8 @@ flowchart LR
 
 - 🤖 Built for ERC-4337 / account-abstraction agents
 - 💳 Automatic x402 payment handling — detect a 402, pay, retry, transparently
-- 💰 Optional `maxAmountUsd` spend cap — a real enforcement boundary, not just a docs warning
+- 💰 Optional `maxAmountUsd` (per-call) and `maxTotalUsd` (per-session) spend caps — real enforcement boundaries, not just docs warnings
+- ✅ USDC asset verification always on — a merchant cannot get a signature for an arbitrary token contract
 - 🔒 Non-custodial — the private key never leaves your process, and isn't even enumerable on the returned object (safe to log the wallet by accident)
 - ⚡ Minimal dependencies (`viem` + `@x402/*`)
 - 🌐 Works against any x402-compatible API
@@ -116,15 +117,18 @@ x402 spending. Full writeup:
 - The published package is open source. Don't trust this description —
   read `src/`, it's short.
 
-## Spend cap
+## Spend caps
 
-`x402Fetch`'s second argument accepts `maxAmountUsd`:
+`x402Fetch`'s second argument accepts two independent caps:
 
 ```ts
-const fetchWithPayment = x402Fetch(wallet, { maxAmountUsd: 0.10 });
+const fetchWithPayment = x402Fetch(wallet, {
+  maxAmountUsd: 0.10, // per challenge
+  maxTotalUsd: 5.0,   // per session (this wrapper instance)
+});
 ```
 
-Without it, `x402Fetch` pays whatever a 402 response asks for — a
+Without a cap, `x402Fetch` pays whatever a 402 response asks for — a
 misbehaving or compromised merchant returning a much larger amount than
 expected gets paid in full, silently. With `maxAmountUsd` set, a payment
 requirement above the cap is filtered out before signing (via a real
@@ -132,11 +136,31 @@ requirement above the cap is filtered out before signing (via a real
 fact), and if that leaves nothing payable, the call throws instead of
 proceeding.
 
-The cap only evaluates a requirement whose asset is a known 6-decimal
+`maxAmountUsd` alone is per challenge: a merchant charging exactly at the
+cap on every request still drains `cap × N` over N requests — which is
+precisely how an autonomous retry loop gets bled. `maxTotalUsd` closes
+that: once the payments this wrapper has authorized reach the budget,
+further challenges throw. Accounting is at authorization time and
+deliberately conservative — a payment that later fails still consumes
+budget (the signature already left the process). Build a new `x402Fetch`
+to start a fresh budget.
+
+The caps only evaluate a requirement whose asset is a known 6-decimal
 Circle USDC deployment (Base mainnet or Base Sepolia) — anything else is
 excluded rather than evaluated with a guessed decimal count, since
 guessing wrong could make a genuinely large charge on a different-decimals
 asset look small enough to slip through.
+
+### Asset verification is always on
+
+Since 0.3.0 the USDC allowlist applies even with **no** cap set: an
+EIP-3009 authorization is valid for whatever token contract it names, so
+signing for an arbitrary merchant-supplied asset could move ANY EIP-3009
+token the EOA holds. A challenge on an unrecognized asset now throws by
+default. If you genuinely want the old behavior, pass
+`allowUnknownAssets: true` — it is honored only when no cap is set (an
+asset with unverified decimals cannot be measured against a USD cap), and
+only sensible when the wallet holds nothing you are not willing to lose.
 
 ## API
 
@@ -145,7 +169,7 @@ asset look small enough to slip through.
 | `createSpendWallet()` | A new `SpendWallet { address, privateKey, account }` |
 | `spendWalletFromPrivateKey(key)` | Rehydrates a `SpendWallet` from a key you already have |
 | `getUsdcBalance(address, rpcUrl?)` | USDC balance (number, human units) on Base |
-| `x402Fetch(wallet, options?)` | A `fetch`-compatible function that auto-pays x402 challenges — `wallet` can be a `SpendWallet`, a viem `LocalAccount`, or a raw private key string. `options: { maxAmountUsd?, network? }` — see "Spend cap" above; `network` overrides the default `eip155:8453` (Base mainnet) |
+| `x402Fetch(wallet, options?)` | A `fetch`-compatible function that auto-pays x402 challenges — `wallet` can be a `SpendWallet`, a viem `LocalAccount`, or a raw private key string. `options: { maxAmountUsd?, maxTotalUsd?, allowUnknownAssets?, network? }` — see "Spend caps" above; `network` overrides the default `eip155:8453` (Base mainnet) |
 
 ## Use cases
 

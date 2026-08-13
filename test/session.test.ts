@@ -168,3 +168,81 @@ test("x402Fetch with maxAmountUsd refuses a requirement on an unrecognized asset
     }
   );
 });
+
+test("x402Fetch with maxTotalUsd stops paying once the session budget is exhausted", async () => {
+  const wallet = createSpendWallet();
+  let paidCalls = 0;
+
+  const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const req = new Request(input, init);
+    if (req.headers.has("PAYMENT-SIGNATURE") || req.headers.has("X-PAYMENT")) {
+      paidCalls++;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }
+    return paymentRequiredResponse("50000"); // $0.05 per challenge
+  }) as typeof fetch;
+
+  await withGlobalFetch(fetchImpl, async () => {
+    // Budget fits exactly one $0.05 payment; the second must refuse even
+    // though each individual charge is identical and "reasonable".
+    const fetchWithPayment = x402Fetch(wallet, { maxTotalUsd: 0.08 });
+    const first = await fetchWithPayment("https://example.com/paid");
+    assert.equal(first.status, 200);
+    await assert.rejects(
+      () => fetchWithPayment("https://example.com/paid"),
+      /maxTotalUsd budget/
+    );
+  });
+  assert.equal(paidCalls, 1, "only the first challenge may be paid");
+});
+
+test("x402Fetch refuses an unrecognized asset even with NO cap configured", async () => {
+  // The asset allowlist must not live inside the cap option: an EIP-3009
+  // signature is valid for whatever token contract it names, so a capless
+  // session was previously willing to sign for ANY asset a merchant put in
+  // the challenge.
+  const wallet = createSpendWallet();
+  await withGlobalFetch(
+    (async () => paymentRequiredResponse("5000", "0x000000000000000000000000000000000000dd")) as typeof fetch,
+    async () => {
+      const fetchWithPayment = x402Fetch(wallet);
+      await assert.rejects(
+        () => fetchWithPayment("https://example.com/paid"),
+        /unrecognized asset/
+      );
+    }
+  );
+});
+
+test("x402Fetch pays an unrecognized asset only with the explicit allowUnknownAssets opt-out", async () => {
+  const wallet = createSpendWallet();
+  let callCount = 0;
+  await withGlobalFetch(
+    (async () => {
+      callCount++;
+      return callCount === 1
+        ? paymentRequiredResponse("5000", "0x00000000000000000000000000000000000000dd")
+        : new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch,
+    async () => {
+      const fetchWithPayment = x402Fetch(wallet, { allowUnknownAssets: true });
+      const res = await fetchWithPayment("https://example.com/paid");
+      assert.equal(res.status, 200);
+    }
+  );
+  assert.equal(callCount, 2);
+});
+
+test("x402Fetch ignores allowUnknownAssets while a cap is set — unverified decimals defeat a USD cap", async () => {
+  const wallet = createSpendWallet();
+  await withGlobalFetch(
+    (async () => paymentRequiredResponse("5000", "0x000000000000000000000000000000000000dd")) as typeof fetch,
+    async () => {
+      const fetchWithPayment = x402Fetch(wallet, { maxAmountUsd: 0.5, allowUnknownAssets: true });
+      await assert.rejects(
+        () => fetchWithPayment("https://example.com/paid"),
+        /unrecognized asset/
+      );
+    }
+  );
+});

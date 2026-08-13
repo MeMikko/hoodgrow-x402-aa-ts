@@ -51,15 +51,42 @@ export interface X402FetchOptions {
    * signing, and if that leaves nothing payable, the call throws instead
    * of silently proceeding.
    *
-   * Only evaluates a requirement whose `asset` is a known 6-decimal
-   * Circle USDC deployment (see `KNOWN_USDC_ADDRESSES`) — a requirement
-   * on any other asset is refused outright, not evaluated with a guessed
-   * decimal count. This is deliberate: assuming an unverified asset is
-   * 6-decimal USDC is exactly what let a smaller-decimals asset's large
-   * real-dollar charge look cheap enough to pass the cap before this was
-   * fixed (see `maxAmountUsdPolicy`).
+   * Note this is PER CHALLENGE: a merchant charging exactly at the cap on
+   * every request still drains `cap × N` over N requests — which is
+   * precisely how an autonomous retry loop gets bled. Pair it with
+   * {@link maxTotalUsd} to bound the whole session.
    */
   maxAmountUsd?: number;
+  /**
+   * Cumulative budget for everything this `x402Fetch` wrapper authorizes,
+   * in USD. Once authorized payments reach this budget, further 402
+   * challenges throw instead of paying — the backstop `maxAmountUsd`
+   * alone cannot provide against drain-by-repetition.
+   *
+   * Accounting is at AUTHORIZATION time, deliberately conservative: the
+   * amount is counted the moment this policy approves a requirement for
+   * signing, not when settlement is confirmed. A payment that later fails
+   * still consumes budget (the signature left the process — from a
+   * spend-control standpoint the money must be presumed gone), and the
+   * upstream client re-invoking the policy for the same challenge counts
+   * again. The ledger lives inside this wrapper instance; build a new
+   * `x402Fetch` to start a fresh budget.
+   */
+  maxTotalUsd?: number;
+  /**
+   * By default every payment requirement must name a known Circle USDC
+   * deployment (see `KNOWN_USDC_ADDRESSES`) before this library will sign
+   * anything — EVEN when no cap is set. An EIP-3009 authorization is
+   * valid for whatever token contract it names, so without this check a
+   * merchant could induce a signature moving ANY EIP-3009 token the EOA
+   * happens to hold. Set `true` to sign for unrecognized assets anyway —
+   * only sensible when the wallet holds nothing but funds you are willing
+   * to lose, and never honored while `maxAmountUsd`/`maxTotalUsd` is set
+   * (an asset with unverified decimals cannot be measured against a USD
+   * cap; guessing UNDER the real decimals is exactly the historical
+   * bypass, see `KNOWN_USDC_ADDRESSES`).
+   */
+  allowUnknownAssets?: boolean;
   /** Override the network this wallet pays on — CAIP-2 form, e.g.
    * `"eip155:8453"` (Base) or `"solana:mainnet"`. Defaults to `NETWORK`
    * (Base mainnet). Only Base/EVM "exact"-scheme payments are supported
@@ -68,31 +95,78 @@ export interface X402FetchOptions {
   network?: Network;
 }
 
-function maxAmountUsdPolicy(maxAmountUsd: number) {
-  const capAtomic = BigInt(Math.round(maxAmountUsd * 10 ** USDC_DECIMALS));
+function usdToAtomic(usd: number): bigint {
+  return BigInt(Math.round(usd * 10 ** USDC_DECIMALS));
+}
+
+function isVerifiedUsdc(r: PaymentRequirements): boolean {
+  const knownUsdc = KNOWN_USDC_ADDRESSES[r.network];
+  if (!knownUsdc || r.asset.toLowerCase() !== knownUsdc) return false;
+  // A negative amount is malformed. uint256 encoding would reject it
+  // downstream anyway, but a spend policy should never call it payable.
+  return BigInt(r.amount) >= 0n;
+}
+
+function describe(requirements: PaymentRequirements[]): string {
+  return requirements
+    .map((r) => `${r.amount} atomic units of ${r.asset} on ${r.network}`)
+    .join(", ");
+}
+
+function paymentPolicy(options: { maxAmountUsd?: number; maxTotalUsd?: number }) {
+  const perCallCapAtomic =
+    options.maxAmountUsd !== undefined ? usdToAtomic(options.maxAmountUsd) : undefined;
+  const totalCapAtomic =
+    options.maxTotalUsd !== undefined ? usdToAtomic(options.maxTotalUsd) : undefined;
+  // Cumulative authorization ledger for this wrapper instance. Counted at
+  // approval time (see X402FetchOptions.maxTotalUsd for why), so it only
+  // ever over-counts — never under.
+  let authorizedAtomic = 0n;
+
   return (_x402Version: number, requirements: PaymentRequirements[]): PaymentRequirements[] => {
-    const affordable = requirements.filter((r) => {
-      const knownUsdc = KNOWN_USDC_ADDRESSES[r.network];
-      if (!knownUsdc || r.asset.toLowerCase() !== knownUsdc) return false;
-      return BigInt(r.amount) <= capAtomic;
-    });
-    if (affordable.length === 0 && requirements.length > 0) {
-      const asked = requirements
-        .map((r) => {
-          const knownUsdc = KNOWN_USDC_ADDRESSES[r.network];
-          const reason =
-            !knownUsdc || r.asset.toLowerCase() !== knownUsdc
-              ? "unrecognized asset, decimals not verified"
-              : "over cap";
-          return `${r.amount} atomic units of ${r.asset} on ${r.network} (${reason})`;
-        })
-        .join(", ");
+    if (requirements.length === 0) return requirements;
+
+    const verified = requirements.filter(isVerifiedUsdc);
+    if (verified.length === 0) {
       throw new Error(
-        `x402Fetch: every payment option (${asked}) exceeds the configured maxAmountUsd cap of $${maxAmountUsd}, or is on an asset this policy can't verify — refusing to pay. ` +
+        `x402Fetch: none of the payment options (${describe(requirements)}) is on a recognized Circle USDC deployment (unrecognized asset, decimals not verified) — refusing to sign. ` +
+          "An unverified asset cannot be measured against a USD cap, and an EIP-3009 signature is valid for whatever token it names. " +
+          "Pass allowUnknownAssets: true (with no maxAmountUsd/maxTotalUsd) only if this wallet holds nothing you are not willing to lose."
+      );
+    }
+
+    const underPerCall =
+      perCallCapAtomic === undefined
+        ? verified
+        : verified.filter((r) => BigInt(r.amount) <= perCallCapAtomic);
+    if (underPerCall.length === 0) {
+      throw new Error(
+        `x402Fetch: every payment option (${describe(verified)}) exceeds the configured maxAmountUsd cap of $${options.maxAmountUsd} — refusing to pay. ` +
           "Raise maxAmountUsd if this charge is expected, or investigate why the server is asking for more than usual."
       );
     }
-    return affordable;
+
+    if (totalCapAtomic === undefined) return underPerCall;
+
+    const withinBudget = underPerCall.filter(
+      (r) => authorizedAtomic + BigInt(r.amount) <= totalCapAtomic
+    );
+    if (withinBudget.length === 0) {
+      const authorizedUsd = Number(authorizedAtomic) / 10 ** USDC_DECIMALS;
+      throw new Error(
+        `x402Fetch: paying any offered option (${describe(underPerCall)}) would push this session past its maxTotalUsd budget of $${options.maxTotalUsd} ` +
+          `(already authorized $${authorizedUsd}) — refusing to pay. ` +
+          "Build a new x402Fetch to start a fresh budget if this spending is intended."
+      );
+    }
+    // The client settles ONE of the requirements this policy returns. To
+    // keep the ledger honest, return exactly one — the cheapest — and
+    // count it as authorized now.
+    const cheapest = withinBudget.reduce((a, b) =>
+      BigInt(a.amount) <= BigInt(b.amount) ? a : b
+    );
+    authorizedAtomic += BigInt(cheapest.amount);
+    return [cheapest];
   };
 }
 
@@ -121,8 +195,15 @@ export function x402Fetch(
         : wallet;
 
   const client = new x402Client().register(options?.network ?? NETWORK, new ExactEvmScheme(account));
-  if (options?.maxAmountUsd !== undefined) {
-    client.registerPolicy(maxAmountUsdPolicy(options.maxAmountUsd));
+  // The asset-verification policy is ALWAYS on unless the caller both sets
+  // no cap and explicitly opts into unknown assets. With a cap set,
+  // allowUnknownAssets is deliberately ignored: an asset with unverified
+  // decimals cannot be measured against a USD cap.
+  const hasCap = options?.maxAmountUsd !== undefined || options?.maxTotalUsd !== undefined;
+  if (hasCap || !options?.allowUnknownAssets) {
+    client.registerPolicy(
+      paymentPolicy({ maxAmountUsd: options?.maxAmountUsd, maxTotalUsd: options?.maxTotalUsd })
+    );
   }
   return wrapFetchWithPayment(fetch, client);
 }
